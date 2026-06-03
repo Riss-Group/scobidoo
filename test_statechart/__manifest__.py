@@ -18,5 +18,5 @@
         "security/thing_with_mailthread.xml",
     ],
     "demo": [],
-    "installable": True,
+    "installable": False,
 }
