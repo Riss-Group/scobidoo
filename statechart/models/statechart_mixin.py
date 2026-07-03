@@ -240,11 +240,15 @@ class StatechartMixin(models.AbstractModel):
                 )
 
     def _sc_make_event_allowed_field(self, model_cls, event_name):
-        # we add the fields in the original python class
-        # so all downstream field processing done by Odoo works
-        # (_inherit, _inherits in particular)
+        # Odoo 19 : le pipeline de setup a changé (plus de _setup_base /
+        # _setup_complete). Les fields sc_<event>_allowed sont donc ajoutés
+        # dans _post_model_setup__, càd APRÈS la passe _setup_fields : on les
+        # enregistre nous-mêmes dans _fields__ (dont _fields est une vue) et on
+        # appelle field.setup() (ce que _setup_fields aurait fait). Le graphe de
+        # dépendances est reconstruit par le registry juste après
+        # setup_model_classes, donc les nouveaux fields y sont pris en compte.
         field_name = _sc_make_event_allowed_field_name(event_name)
-        if hasattr(model_cls, field_name):
+        if field_name in model_cls._fields__:
             return
         field = fields.Boolean(
             compute="_compute_sc_event_allowed",
@@ -253,40 +257,10 @@ class StatechartMixin(models.AbstractModel):
         )
         _logger.debug("adding field %s to %s", field_name, model_cls)
         setattr(model_cls, field_name, field)
+        field._toplevel = True
         field.__set_name__(model_cls, field_name)
-
-    @api.model
-    def _setup_base(self):
-        """Very early, load the statechart, and add the sc_event_allowed
-        fields on the model classes where the developer has declared
-        the _statechart_file attribute.
-
-        This closely emulates what the developer would have done when
-        adding such fields manually.
-
-        Further steps of the regular setup process will then add these fields
-        on children models.
-        """
-        model_cls = type(self)
-        assert not models.is_definition_class(model_cls)
-        for def_cls in model_cls.__bases__:
-            if not models.is_definition_class(def_cls):
-                continue
-            if "_statechart_file" not in def_cls.__dict__:
-                continue
-            _logger.debug(
-                "%s has _statechart_file.",
-                def_cls,
-            )
-            statechart = parse_statechart_file(def_cls._statechart_file)
-            _logger.debug(
-                "adding sc_event_allowed fields of statechart %s on %s.",
-                statechart.name,
-                def_cls,
-            )
-            for event_name in statechart.events_for():
-                self._sc_make_event_allowed_field(def_cls, event_name)
-        return super()._setup_base()
+        model_cls._fields__[field_name] = field
+        field.setup(model_cls(self.env, (), ()))
 
     @api.model
     def _sc_patch(self):
@@ -310,22 +284,24 @@ class StatechartMixin(models.AbstractModel):
             cls,
         )
         cls._statechart = statechart
-        if not hasattr(cls, "_statechart_patched"):
+        if "_statechart_patched" not in cls.__dict__:
             cls._statechart_patched = set()
         for event_name in statechart.events_for():
+            # champs sc_<event>_allowed (idempotent via _fields__)
+            self._sc_make_event_allowed_field(cls, event_name)
+            # méthodes d'événement (bouton type=object + code)
             if event_name not in cls._statechart_patched:
                 self._sc_make_event_method(self, event_name)
                 cls._statechart_patched.add(event_name)
 
-    @api.model
-    def _setup_complete(self):
-        """Very late, patch the event methods to invoke the statechart.
-
-        We record a set of event methods already patched, so an inherited
-        class can override the statechart with another one adding new events,
-        and we will not patch the same method twice.
+    def _post_model_setup__(self):
+        """Odoo 19 : remplace les anciens hooks _setup_base / _setup_complete
+        (retirés du pipeline ORM 19). Appelé une fois par modèle à la fin de
+        setup_model_classes (donc à chaque setup, y compris pendant l'install,
+        avant la validation des vues) : on (re)charge le statechart, on ajoute
+        les fields sc_<event>_allowed et on patche les méthodes d'événement.
         """
-        res = super()._setup_complete()
+        res = super()._post_model_setup__()
         self._sc_patch()
         return res
 
