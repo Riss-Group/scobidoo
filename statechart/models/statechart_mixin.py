@@ -16,13 +16,19 @@ _logger = logging.getLogger(__name__)
 
 
 def _patch_method(cls, name, method):
-    """This method was part of the Model class in Odoo 16 and earlier."""
+    """This method was part of the Model class in Odoo 16 and earlier.
+
+    Odoo 19 : api.propagate a été retiré du cœur (il ne recopiait que
+    l'attribut _returns, lui-même supprimé avec @api.returns). On pose donc
+    directement la méthode en conservant .origin et en recopiant, par
+    prudence, les éventuels attributs de décorateur encore présents.
+    """
     origin = getattr(cls, name)
     method.origin = origin
-    # propagate decorators from origin to method, and apply api decorator
-    wrapped = api.propagate(origin, method)
-    wrapped.origin = origin
-    setattr(cls, name, wrapped)
+    for attr in ("_returns",):
+        if hasattr(origin, attr):
+            setattr(method, attr, getattr(origin, attr))
+    setattr(cls, name, method)
 
 
 def _sc_make_event_allowed_field_name(event_name):
