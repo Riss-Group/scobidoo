@@ -330,12 +330,16 @@ class StatechartMixin(models.AbstractModel):
 
     @api.model
     def _search_sc_has_allowed_events(self, operator, value):
-        if (operator == "=" and value) or operator == "!=" and not value:
-            records = self.search(self._get_sc_has_allowed_events_pre_filter())
-            return [
-                ("id", "in", [rec.id for rec in records if rec.sc_has_allowed_events])
-            ]
-        return ["!"] + self._search_sc_has_allowed_events("=", True)
+        # Odoo 19 normalizes boolean conditions to ('in'|'not in', [True])
+        if operator not in ("in", "not in"):
+            return NotImplemented
+        records = self.search(self._get_sc_has_allowed_events_pre_filter())
+        domain = [
+            ("id", "in", [rec.id for rec in records if rec.sc_has_allowed_events])
+        ]
+        if operator == "in":
+            return domain
+        return ["!"] + domain
 
     def _get_sc_has_allowed_events_domain(self):
         return [
