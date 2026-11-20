@@ -5,7 +5,7 @@
     "name": "Statechart",
     "summary": """
         Add Statecharts to Odoo models""",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.0.1",
     "license": "LGPL-3",
     "author": "ACSONE SA/NV,Odoo Community Association (OCA)",
     "website": "https://github.com/acsone/scobidoo",
